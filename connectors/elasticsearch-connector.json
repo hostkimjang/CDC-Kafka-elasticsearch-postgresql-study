@@ -1,0 +1,27 @@
+{
+  "name": "elasticsearch-sink-connector",
+  "config": {
+    "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
+    "connection.url": "http://elasticsearch:9200",
+    "type.name": "_doc",
+    "topics": "novel-platform-novels",
+    "key.ignore": "true",
+    "schema.ignore": "true",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "transforms": "extractValue",
+    "transforms.extractValue.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
+    "transforms.extractValue.field": "after",
+    "behavior.on.malformed.documents": "warn",
+    "behavior.on.null.values": "ignore",
+    "errors.tolerance": "all",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true",
+    "batch.size": 100,
+    "max.in.flight.requests": 1,
+    "flush.timeout.ms": 10000,
+    "max.retries": 10,
+    "retry.backoff.ms": 1000
+  }
+} 

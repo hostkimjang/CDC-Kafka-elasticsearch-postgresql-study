@@ -1,0 +1,44 @@
+# Docker
+.env
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data directories (if mounted locally)
+data/
+postgres-data/
+kafka-data/
+elasticsearch-data/
+zookeeper-data/
+
+# Backup files
+*.bak
+*.backup
+
+# Temporary files
+tmp/
+temp/
+
+# Environment files
+.env.local
+.env.production
+.env.test
+
+# Personal configuration files
+config.local.*
+settings.local.*
+
+# Additional personal configuration files
+.env.*.local 
