@@ -23,6 +23,16 @@ services:
       - ./init-scripts:/docker-entrypoint-initdb.d
     networks:
       - cdc-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-novel_platform}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Zookeeper
   zookeeper:
@@ -68,9 +78,9 @@ services:
     networks:
       - cdc-network
 
-  # Kafka Connect with Debezium
+  # Kafka Connect with Debezium + Elasticsearch
   kafka-connect:
-    image: debezium/connect:${DEBEZIUM_VERSION:-2.4}
+    image: confluentinc/cp-kafka-connect:7.5.0
     container_name: kafka-connect
     hostname: kafka-connect
     depends_on:
@@ -79,22 +89,47 @@ services:
     ports:
       - "${KAFKA_CONNECT_PORT:-6083}:8083"
     environment:
-      BOOTSTRAP_SERVERS: kafka:29092
-      GROUP_ID: 1
-      CONFIG_STORAGE_TOPIC: connect_configs
-      OFFSET_STORAGE_TOPIC: connect_offsets
-      STATUS_STORAGE_TOPIC: connect_statuses
-      CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      STATUS_STORAGE_REPLICATION_FACTOR: 1
-      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_BOOTSTRAP_SERVERS: kafka:29092
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_GROUP_ID: 1
+      CONNECT_CONFIG_STORAGE_TOPIC: connect_configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect_offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect_statuses
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
       CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
     volumes:
       - kafka_connect_data:/kafka/data
     networks:
       - cdc-network
+    command: >
+      bash -c "
+        echo '🔧 필수 커넥터 설치 중...'
+        
+        # Debezium PostgreSQL 커넥터 설치
+        echo '📡 Debezium PostgreSQL 커넥터 설치...'
+        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:2.4.2
+        
+        # Elasticsearch 싱크 커넥터 설치
+        echo '🔗 Elasticsearch 싱크 커넥터 설치...'
+        confluent-hub install --no-prompt confluentinc/kafka-connect-elasticsearch:15.0.0
+        
+        echo '✅ 모든 커넥터 설치 완료! Kafka Connect 시작...'
+        
+        # Kafka Connect 시작
+        /etc/confluent/docker/run
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/connectors || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
 
   # Elasticsearch
   elasticsearch:
@@ -165,40 +200,27 @@ services:
     networks:
       - cdc-network
 
-  # Elasticsearch Connector (Kafka Connect에서 Elasticsearch로 데이터 전송)
-  elasticsearch-connector:
-    image: confluentinc/cp-kafka-connect:${KAFKA_VERSION:-7.5.0}
-    container_name: elasticsearch-connector
-    hostname: elasticsearch-connector
+  # 🤖 커넥터 자동 설정 초기화 컨테이너
+  connector-setup:
+    image: curlimages/curl:latest
+    container_name: connector-setup
     depends_on:
-      - kafka-connect
-      - elasticsearch
+      kafka-connect:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./connectors:/connectors:ro
+      - ./connector-init.sh:/connector-init.sh:ro
     environment:
-      CONNECT_BOOTSTRAP_SERVERS: kafka:29092
-      CONNECT_REST_ADVERTISED_HOST_NAME: elasticsearch-connector
-      CONNECT_REST_PORT: 8083
-      CONNECT_GROUP_ID: elasticsearch-connect-group
-      CONNECT_CONFIG_STORAGE_TOPIC: elasticsearch-connect-configs
-      CONNECT_OFFSET_STORAGE_TOPIC: elasticsearch-connect-offsets
-      CONNECT_STATUS_STORAGE_TOPIC: elasticsearch-connect-status
-      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
-      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
-      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
-    ports:
-      - "${ELASTICSEARCH_CONNECT_PORT:-6084}:8083"
-    command:
-      - bash
-      - -c
-      - |
-        # Elasticsearch Connector 설치
-        confluent-hub install --no-prompt confluentinc/kafka-connect-elasticsearch:15.0.0
-        /etc/confluent/docker/run
+      - KAFKA_CONNECT_URL=http://kafka-connect:8083
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    command: sh /connector-init.sh
     networks:
       - cdc-network
+    restart: "no"
 
 networks:
   cdc-network:
