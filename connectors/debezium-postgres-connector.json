@@ -5,7 +5,7 @@
     "database.hostname": "postgres",
     "database.port": "5432",
     "database.user": "postgres",
-    "database.password": "changeme",
+    "database.password": "password",
     "database.dbname": "novel_platform",
     "database.server.name": "novel_platform_db",
     "table.include.list": "public.novels,public.chapters,public.crawl_logs,public.platforms",
