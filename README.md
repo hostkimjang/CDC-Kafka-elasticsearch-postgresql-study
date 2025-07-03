@@ -63,7 +63,7 @@ docker-compose ps
 
 ### 3️⃣ CDC 커넥터 설정
 ```bash
-# 커넥터 자동 설정 스크립트 실행 (윈도우 환경)
+# 커넥터 자동 설정 스크립트 실행 (리눅스 환경)
 bash setup-connectors.sh
 ```
 
