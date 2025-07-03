@@ -52,25 +52,41 @@ cd novel-platform-cdc
 cp env.example .env
 ```
 
-### 2️⃣ 전체 시스템 실행
+### 2️⃣ 🎯 원클릭 실행 (자동화 완료!)
 ```bash
-# 모든 서비스 시작
+# 모든 서비스 시작 + 커넥터 자동 설정
 docker-compose up -d
 
 # 서비스 상태 확인
 docker-compose ps
 ```
 
-### 3️⃣ CDC 커넥터 설정
+> **✨ 새로운 기능**: 이제 CDC 커넥터가 **자동으로 설정**됩니다! 
+> - Debezium PostgreSQL 커넥터 자동 등록
+> - Elasticsearch 싱크 커넥터 자동 등록  
+> - 서비스 의존성 자동 관리 (헬스체크 기반)
+
+### 3️⃣ 설정 상태 확인
 ```bash
-# 커넥터 자동 설정 스크립트 실행 (리눅스 환경)
-bash setup-connectors.sh
+# 커넥터 상태 확인
+curl -s http://localhost:6083/connectors | jq
+
+# 또는 Kafka UI에서 확인
+# http://localhost:6080 접속
 ```
 
 ### 4️⃣ 테스트 데이터 삽입
 ```bash
 # 테스트용 소설 10개 자동 삽입
 bash test-insert-novels.sh
+```
+
+## 🔄 이전 방식 (수동 설정)
+
+기존의 수동 설정이 필요한 경우:
+```bash
+# 커넥터 수동 설정 (선택사항)
+bash setup-connectors.sh
 ```
 
 ## 🌐 접속 정보
