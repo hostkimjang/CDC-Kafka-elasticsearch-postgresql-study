@@ -5,7 +5,7 @@
     "connection.url": "http://elasticsearch:9200",
     "type.name": "_doc",
     "topics": "novel-platform-novels",
-    "key.ignore": "true",
+    "key.ignore": "false",
     "schema.ignore": "true",
     "key.converter": "org.apache.kafka.connect.storage.StringConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
