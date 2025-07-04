@@ -128,5 +128,5 @@ echo "🎉 ==================== CDC 시스템 설정 완료 ====================
 echo "  - Kafka UI: http://localhost:${KAFKA_UI_PORT:-6080}"
 echo "  - Kibana: http://localhost:${KIBANA_PORT:-6601}"
 echo ""
-echo "🧪 테스트 명령어:"
-echo "  docker exec postgres-db psql -U ${POSTG-RES_USER} -d ${POSTGRES_DB} -c \"INSERT INTO novels (title, author, platform, url, genre) VALUES ('테스트 소설', '테스트 작가', '테스트 플랫폼', 'http://test.com', '판타지');\"" 
+# echo "🧪 테스트 명령어:"
+# echo "  docker exec postgres-db psql -U ${POSTG-RES_USER} -d ${POSTGRES_DB} -c \"INSERT INTO novels (title, author, platform, url, genre) VALUES ('테스트 소설', '테스트 작가', '테스트 플랫폼', 'http://test.com', '판타지');\"" 
