@@ -22,11 +22,15 @@ PostgreSQL → Debezium → Kafka → Elasticsearch
 ```
 
 **실제 구현된 데이터 플로우:**
-1. PostgreSQL `novels` 테이블에 소설 데이터 저장
+1. PostgreSQL `novels` 및 `ex_platform_novel` 테이블에 소설 데이터 저장
 2. Debezium이 PostgreSQL WAL(Write-Ahead Logging) 모니터링
-3. 데이터 변경사항을 Kafka 토픽 `novel-platform-novels`로 전송
-4. Elasticsearch Sink Connector가 Kafka에서 데이터를 읽어 Elasticsearch로 동기화
-5. Kibana를 통해 실시간 데이터 시각화
+3. 데이터 변경사항을 Kafka 토픽으로 전송
+   - `novel-platform-novels`: 메인 소설 데이터
+   - `novel-platform-ex_platform_novel`: 크롤링 플랫폼 소설 데이터
+4. 다중 Elasticsearch Sink Connector로 데이터 분산 저장:
+   - **최신 상태**: ID 기반 실시간 업데이트
+   - **변경 이력**: 일별 인덱스로 모든 변경사항 추적
+5. Kibana를 통해 실시간 데이터 시각화 및 변경 이력 분석
 
 ## 📦 기술 스택
 
@@ -119,14 +123,48 @@ CREATE TABLE novels (
 );
 ```
 
+### ex_platform_novel 테이블 (크롤링 데이터)
+```sql
+CREATE TABLE ex_platform_novel (
+    id SERIAL PRIMARY KEY,
+    platform_id VARCHAR(100) NOT NULL,    -- 플랫폼 내부 ID
+    platform_name VARCHAR(100) NOT NULL,  -- 플랫폼명
+    title VARCHAR(500) NOT NULL,          -- 소설 제목
+    author VARCHAR(200) NOT NULL,         -- 작가명
+    url TEXT NOT NULL,                    -- 원본 URL
+    description TEXT,                     -- 소설 설명
+    genre VARCHAR(100),                   -- 장르
+    status VARCHAR(50),                   -- 연재 상태
+    total_chapters INTEGER DEFAULT 0,    -- 총 화수
+    view_count BIGINT DEFAULT 0,          -- 조회수 (플랫폼별로 큰 수치 가능)
+    like_count INTEGER DEFAULT 0,        -- 좋아요/별점 수
+    rating DECIMAL(3,2),                 -- 평점
+    tags TEXT,                            -- 태그 정보
+    cover_image_url TEXT,                 -- 표지 이미지 URL
+    publication_date TIMESTAMP,           -- 최초 발행일
+    last_chapter_date TIMESTAMP,          -- 마지막 회차 업데이트일
+    crawled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 크롤링 시간
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(platform_name, platform_id)    -- 플랫폼별 고유성 보장
+);
+```
+
 ## 🧪 실습 가이드
 
-### Step 1: 데이터 삽입 테스트
+### Step 1: 기본 데이터 삽입 테스트
 ```bash
-# 개별 소설 삽입
+# 메인 소설 테이블에 데이터 삽입
 docker exec postgres-db psql -U postgres -d novel_platform -c "
 INSERT INTO novels (title, author, platform, url, genre, status) 
 VALUES ('새로운 소설', '김작가', '킴장플랫폼', 'https://example.com', '판타지', '연재중');
+"
+
+# 크롤링 플랫폼 소설 데이터 삽입
+docker exec postgres-db psql -U postgres -d novel_platform -c "
+INSERT INTO ex_platform_novel (platform_id, platform_name, title, author, url, genre, status, view_count, rating) 
+VALUES ('naver_99999', '네이버시리즈', '신작 판타지', '신작가', 'https://series.naver.com/novel/99999', '판타지', '연재중', 1000, 4.2);
 "
 ```
 
@@ -135,22 +173,91 @@ VALUES ('새로운 소설', '김작가', '킴장플랫폼', 'https://example.com
 # Kafka 토픽에서 변경사항 실시간 확인
 docker exec kafka-broker kafka-console-consumer \
   --bootstrap-server localhost:6092 \
-  --topic novel-platform-novels \
+  --topic novel-platform-ex_platform_novel \
   --from-beginning
 ```
 
 ### Step 3: Elasticsearch 동기화 확인
 ```bash
-# Elasticsearch에서 데이터 조회
-curl -s "http://localhost:6200/novel-platform-novels/_search?pretty" | jq '.hits.total.value'
+# 메인 인덱스 확인
+curl -s "http://localhost:6200/ex-platform-novel/_search?pretty"
+
+# 변경 이력 인덱스 확인 (오늘 날짜)
+curl -s "http://localhost:6200/ex-platform-novel-history-$(date +%Y-%m-%d)/_search?pretty"
 ```
 
-### Step 4: 데이터 업데이트 테스트
+### Step 4: 🎯 변경 이력 추적 테스트 (핵심!)
 ```bash
-# 조회수 업데이트
+# 1. 조회수 업데이트
 docker exec postgres-db psql -U postgres -d novel_platform -c "
-UPDATE novels SET view_count = view_count + 100 WHERE id = 1;
+UPDATE ex_platform_novel 
+SET view_count = 5000, rating = 4.8 
+WHERE platform_id = 'naver_99999' AND platform_name = '네이버시리즈';
 "
+
+# 2. 메인 인덱스 확인 (최신 상태)
+curl -s "http://localhost:6200/ex-platform-novel/_doc/1?pretty"
+
+# 3. 변경 이력 확인 (before/after 포함)
+curl -s "http://localhost:6200/ex-platform-novel-history-$(date +%Y-%m-%d)/_search?pretty" | jq '.hits.hits[]._source | {op, before, after, ts_ms}'
+
+# 4. 여러 번 업데이트해서 이력 누적 테스트
+docker exec postgres-db psql -U postgres -d novel_platform -c "
+UPDATE ex_platform_novel 
+SET view_count = view_count + 1000, total_chapters = total_chapters + 1
+WHERE platform_id = 'naver_99999';
+"
+```
+
+### Step 5: 🔍 변경 이력 분석 (Kibana 활용)
+```bash
+# Kibana 접속: http://localhost:6601
+# 1. Index Pattern 생성: ex-platform-novel-history-*
+# 2. 변경 이력 시각화 대시보드 생성
+# 3. before/after 값 비교 차트 생성
+# 4. 시간대별 변경 빈도 분석
+```
+
+### Step 6: 고급 변경 이력 쿼리
+```bash
+# 특정 필드의 변경 이력만 조회
+curl -X GET "http://localhost:6200/ex-platform-novel-history-*/_search?pretty" -H 'Content-Type: application/json' -d'
+{
+  "query": {
+    "bool": {
+      "must": [
+        {"term": {"op": "u"}},
+        {"exists": {"field": "before.view_count"}}
+      ]
+    }
+  },
+  "script_fields": {
+    "view_count_change": {
+      "script": {
+        "source": "params._source.after.view_count - params._source.before.view_count"
+      }
+    }
+  }
+}'
+
+# 일별 변경 통계
+curl -X GET "http://localhost:6200/ex-platform-novel-history-*/_search?pretty" -H 'Content-Type: application/json' -d'
+{
+  "size": 0,
+  "aggs": {
+    "daily_changes": {
+      "date_histogram": {
+        "field": "ts_ms",
+        "calendar_interval": "day"
+      },
+      "aggs": {
+        "operation_types": {
+          "terms": {"field": "op"}
+        }
+      }
+    }
+  }
+}'
 ```
 
 ## 🔧 트러블슈팅 가이드
@@ -223,3 +330,42 @@ novel-platform-cdc/
 ---
 
 > **Note**: 이 프로젝트는 개인 학습 및 연구 목적으로 제작되었습니다. 프로덕션 환경에서 사용하기 전에 보안 설정과 성능 최적화를 반드시 검토하세요.
+
+## ✨ 새로운 기능: 변경 이력 추적
+
+### 🔄 자동 변경 감지 시스템
+- **ex_platform_novel** 테이블 업데이트 시 자동으로 이력 추적
+- **before/after** 값 비교로 정확한 변경사항 기록
+- **일별 인덱스** 분리로 효율적인 이력 관리
+
+### 📊 생성되는 Elasticsearch 인덱스
+```
+📁 Elasticsearch 인덱스 구조
+├── novel-platform-novels              # 메인 소설 최신 상태
+├── ex-platform-novel                  # 크롤링 소설 최신 상태  
+└── ex-platform-novel-history-*        # 일별 변경 이력
+    ├── ex-platform-novel-history-2025-01-10
+    ├── ex-platform-novel-history-2025-01-11
+    └── ex-platform-novel-history-2025-01-12
+```
+
+### 🎯 변경 이력 데이터 구조
+```json
+{
+  "before": {                    // 변경 전 데이터
+    "id": 1,
+    "title": "기존 제목",
+    "view_count": 1000,
+    "rating": 4.2
+  },
+  "after": {                     // 변경 후 데이터
+    "id": 1, 
+    "title": "수정된 제목",
+    "view_count": 1500,
+    "rating": 4.5
+  },
+  "op": "u",                     // 작업 타입 (u: update)
+  "ts_ms": 1640995200000,        // 변경 시간
+  "processed_at": 1640995201000  // 처리 시간
+}
+```
