@@ -8,7 +8,7 @@
     "database.password": "password",
     "database.dbname": "novel_platform",
     "database.server.name": "novel_platform_db",
-    "table.include.list": "public.novels,public.chapters,public.crawl_logs,public.platforms",
+    "table.include.list": "public.novels,public.ex_platform_novel,public.chapters,public.crawl_logs,public.platforms",
     "plugin.name": "pgoutput",
     "slot.name": "debezium_slot",
     "publication.name": "dbz_publication",
