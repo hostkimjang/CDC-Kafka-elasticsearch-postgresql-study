@@ -1,0 +1,34 @@
+{
+  "name": "elasticsearch-history-connector",
+  "config": {
+    "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
+    "connection.url": "http://elasticsearch:9200",
+    "type.name": "_doc",
+    "topics": "novel-platform-ex_platform_novel",
+    "key.ignore": "true",
+    "schema.ignore": "true",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    
+    "transforms": "addTimestamp,routeIndex",
+    
+    "transforms.addTimestamp.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+    "transforms.addTimestamp.timestamp.field": "history_timestamp",
+    
+    "transforms.routeIndex.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.routeIndex.regex": ".*",
+    "transforms.routeIndex.replacement": "ex-platform-novel-history",
+    
+    "behavior.on.malformed.documents": "warn",
+    "behavior.on.null.values": "ignore",
+    "errors.tolerance": "all",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true",
+    "batch.size": 100,
+    "max.in.flight.requests": 1,
+    "flush.timeout.ms": 10000,
+    "max.retries": 10,
+    "retry.backoff.ms": 1000
+  }
+} 
