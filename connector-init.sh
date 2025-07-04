@@ -84,26 +84,37 @@ wait_for_service "Elasticsearch" "$ELASTICSEARCH_URL/_cluster/health"
 echo "🔍 기존 커넥터 상태 확인..."
 existing_connectors=$(curl -s "$KAFKA_CONNECT_URL/connectors" 2>/dev/null || echo "[]")
 
-if echo "$existing_connectors" | grep -q "postgres-connector"; then
-  delete_connector "postgres-connector"
-fi
-
-if echo "$existing_connectors" | grep -q "elasticsearch-sink-connector"; then
-  delete_connector "elasticsearch-sink-connector"
-fi
+# 기존 커넥터들 삭제
+for connector in postgres-connector elasticsearch-sink-connector elasticsearch-ex-platform-connector elasticsearch-history-connector; do
+  if echo "$existing_connectors" | grep -q "$connector"; then
+    delete_connector "$connector"
+  fi
+done
 
 # 잠시 대기 (커넥터 정리 완료까지)
 echo "⏳ 커넥터 정리 완료 대기..."
 sleep 5
 
 # 3. 새로운 커넥터 등록
+echo "📡 핵심 CDC 커넥터 등록..."
 if ! register_connector "Debezium PostgreSQL" "/connectors/debezium-postgres-connector.json"; then
   echo "❌ Debezium 커넥터 등록 실패"
   exit 1
 fi
 
-if ! register_connector "Elasticsearch Sink" "/connectors/elasticsearch-connector.json"; then
-  echo "❌ Elasticsearch 커넥터 등록 실패"
+echo "🔗 Elasticsearch 싱크 커넥터들 등록..."
+if ! register_connector "Elasticsearch Main (novels)" "/connectors/elasticsearch-connector.json"; then
+  echo "❌ 메인 Elasticsearch 커넥터 등록 실패"
+  exit 1
+fi
+
+if ! register_connector "Elasticsearch Platform Novels" "/connectors/elasticsearch-ex-platform-connector.json"; then
+  echo "❌ Platform Novels 커넥터 등록 실패"
+  exit 1
+fi
+
+if ! register_connector "Elasticsearch Change History" "/connectors/elasticsearch-history-connector.json"; then
+  echo "❌ Change History 커넥터 등록 실패"
   exit 1
 fi
 
@@ -114,7 +125,7 @@ curl -s "$KAFKA_CONNECT_URL/connectors" | sed 's/,/,\n  /g' | sed 's/\[/[\n  /' 
 
 # 5. 커넥터 상태 확인
 echo "🔍 커넥터 상태 점검:"
-for connector in postgres-connector elasticsearch-sink-connector; do
+for connector in postgres-connector elasticsearch-sink-connector elasticsearch-ex-platform-connector elasticsearch-history-connector; do
   status=$(curl -s "$KAFKA_CONNECT_URL/connectors/$connector/status" 2>/dev/null | grep -o '"state":"[^"]*"' | cut -d'"' -f4 || echo "UNKNOWN")
   echo "   - $connector: $status"
 done
@@ -123,4 +134,9 @@ echo "📅 완료 시간: $(date)"
 echo "🎉 CDC 파이프라인 자동 설정 완료!"
 echo "📺 모니터링 URL:"
 echo "   - Kafka UI: http://localhost:6080"
-echo "   - Kibana: http://localhost:6601" 
+echo "   - Kibana: http://localhost:6601"
+echo ""
+echo "📊 생성되는 Elasticsearch 인덱스:"
+echo "   - novel-platform-novels: 메인 소설 데이터"
+echo "   - ex-platform-novel: 크롤링 플랫폼 소설 최신 상태"
+echo "   - ex-platform-novel-history-YYYY-MM-DD: 일별 변경 이력" 
